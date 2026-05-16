@@ -1,0 +1,72 @@
+name: Build APK From ZIP
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Extract project ZIP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ZIP file not found. Upload BlackPixelAutoOverlay_GitHub.zip to repo root."
+            exit 1
+          fi
+
+          unzip -q "$ZIP_FILE" -d extracted
+
+          PROJECT_DIR=$(dirname "$(find extracted -name "settings.gradle*" | head -n 1)")
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "Gradle project not found inside ZIP."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project found at: $PROJECT_DIR"
+
+      - name: Build debug APK
+        run: |
+          cd "$PROJECT_DIR"
+          gradle assembleDebug --no-daemon
+
+      - name: Collect APK
+        run: |
+          mkdir -p apk-out
+          find "$PROJECT_DIR" -path "*/build/outputs/apk/debug/*.apk" -exec cp {} apk-out/ \;
+          ls -la apk-out
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlackPixelAutoOverlay-debug-apk
+          path: apk-out/*.apk
